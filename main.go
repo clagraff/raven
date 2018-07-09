@@ -60,7 +60,7 @@ func (res result) String() string {
 		step (amount of time between requests or increasing users?)
 */
 var (
-	app     = kingpin.New("req", "A command-line HTTP stress test application.")
+	app     = kingpin.New("raven", "A command-line HTTP stress test application.")
 	verbose = app.Flag("verbose", "Enable verbose mode").Short('v').Bool()
 	headers = app.Flag("headers", "Specify HTTP headers").Short('h').StringMap()
 	auth    = app.Flag("authentication", "Provide a username:password").Short('a').String()
@@ -147,7 +147,7 @@ func performRequest(index int, client *http.Client, results chan result, wg *syn
 func setupRequest(method, url string, headers map[string]string, basicAuth string) *http.Request {
 	req, err := http.NewRequest(method, url, nil)
 	if err != nil {
-		panic(err)
+		app.Fatalf(os.Stderr, fmt.Sprintf("could not setup request: %v", err))
 	}
 
 	if len(headers) > 0 {
@@ -159,7 +159,7 @@ func setupRequest(method, url string, headers map[string]string, basicAuth strin
 	if len(basicAuth) > 0 {
 		parts := strings.Split(basicAuth, ":")
 		if len(parts) != 2 {
-			panic("invalid auth: need to supply username:password")
+			app.Fatalf(os.Stderr, "basic auth must be in the form username:password")
 		}
 		req.SetBasicAuth(parts[0], parts[1])
 	}
@@ -187,7 +187,7 @@ func handleDo() {
 
 	method, err := parseMethod(*doMethod)
 	if err != nil {
-		panic(err)
+		app.Fatalf(os.Stderr, fmt.Sprintf("could not parse request method: %v", err))
 	}
 
 	wg := new(sync.WaitGroup)
@@ -218,11 +218,18 @@ func handleDo() {
 			allResults = append(allResults, r)
 		}
 
-		var bytes []byte
 		if *raw == "prettyjson" {
-			bytes, err = json.MarshalIndent(allResults, "", "    ")
+			bytes, err := json.MarshalIndent(allResults, "", "    ")
+			if err != nil {
+				app.Fatalf(os.Stderr, fmt.Sprintf("could not render raw output: %v", err))
+			}
+			fmt.Println(string(bytes))
 		} else if *raw == "json" {
-			bytes, err = json.Marshal(allResults)
+			bytes, err := json.Marshal(allResults)
+			if err != nil {
+				app.Fatalf(os.Stderr, fmt.Sprintf("could not render raw output: %v", err))
+			}
+			fmt.Println(string(bytes))
 		} else if *raw == "csv" {
 			fmt.Println("index,elapsed,stop,start,url,method,error,size,status_code")
 			for _, r := range allResults {
@@ -240,10 +247,7 @@ func handleDo() {
 				)
 			}
 		}
-		if err != nil {
-			panic(err)
-		}
-		fmt.Println(string(bytes))
+
 		return
 	}
 
@@ -299,14 +303,14 @@ func handleDo() {
 
 func handleStress() {
 	if *stressStart <= 0 {
-		panic("must start with a minimum of '1' request concurrently.")
+		app.Fatalf(os.Stderr, "'-s' must be a minimum of '1' request concurrently.")
 	}
 
 	client := setupClient()
 
 	method, err := parseMethod(*stressMethod)
 	if err != nil {
-		panic(err)
+		app.Fatalf(os.Stderr, fmt.Sprintf("could not parse request method: %v", err))
 	}
 
 	baselineSum := 0
@@ -317,7 +321,7 @@ func handleStress() {
 		start := time.Now()
 		_, err := client.Do(r)
 		if err != nil {
-			panic(err)
+			app.Fatalf(os.Stderr, fmt.Sprintf("request failed: %v", err))
 		}
 
 		stop := time.Now()
@@ -427,7 +431,7 @@ func main() {
 	cmd := kingpin.MustParse(app.Parse(os.Args[1:]))
 
 	if *verbose && len(*raw) > 0 {
-		panic("cannot use 'verbose' mode with 'raw' mode")
+		app.Fatalf(os.Stderr, "cannot user 'verbose' and 'raw' mode at same time")
 	}
 
 	switch cmd {
