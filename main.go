@@ -40,25 +40,6 @@ func (res result) String() string {
 	)
 }
 
-/*
-	go run main.go ramp up 50 https://api.amberengine.com
-	go run main.go ramp down 50 https://api.amberengine.com
-	go run main.go do 50 https://api.amberengine.com
-	go run main.go stress https://api.amberengine.com  # ramp up until big discrepencies
-	go run main.go random https://api.amberengine.com
-
-	OPTIONS:
-		url
-		duration
-		request total
-		output type (csv, text, json, graphs?)
-		verborsity?
-		concurrent vs procedural requesting (50 users at once vs 50 after another)
-		headers
-		request method
-		asserts? (required status code, response body, content length??)
-		step (amount of time between requests or increasing users?)
-*/
 var (
 	app     = kingpin.New("raven", "A command-line HTTP stress test application.")
 	verbose = app.Flag("verbose", "Enable verbose mode").Short('v').Bool()
