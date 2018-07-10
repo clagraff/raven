@@ -25,6 +25,7 @@ There are a couple ways to stress test an endpoint. You can:
     * ... number of non-200 responses exceeds a percent threshold
 
 ## `do`
+>>> Immediately send N concurrent requests to the endpoint.
 
 ```bash
 $ raven do 50 get http://localhost
@@ -44,9 +45,11 @@ Status Codes:
 ```
 
 ## `stress`
+### Duration
+>>> Ramp up concurrent requests sent until the respponse duration exceeds a defined threshold
 
 ```bash
-go run main.go stress duration get http://localhost:32768/
+$ raven stress duration get http://localhost:32768/
 Step delay:                   500ns
 Baseline response time:       4.306627ms
 Percent threshold:            10.000000 percent
