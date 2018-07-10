@@ -118,6 +118,39 @@ Performing 1 concurrent requests...
 # etc etc etc
 ```
 
+# Global flags
+## `--help` — output help text
+`--help` will show the help text. 
+*note*: `-h` is **not** shorthand for the `--help` flag.
+
+## `--verbose` — enable verbose mode
+Cannot be used if `--raw` is used.
+`-v` and `--verbose` result in the application providing additional information and context while it executes.
+
+## `--headers` — specify HTTP headers
+`--headers` and `-h` are used to provide `key=value` pairs of HTTP headers.
+
+For example:
+
+```bash
+$ raven -h Authorization="Basic QXp1cmVEaWFtb25kOmh1bnRlcjI=" -h "Content-Type"="application/json" do 50 get http://localhost
+```
+
+## `--raw` — specify raw output type
+You can use `-r` and `--raw` to have raw data outputted for the metrics collected while performing the tests, instead of the normal human-readable text.
+
+You have the following raw types:
+* `csv`: for comma-separated values
+* `json`: for minified JSON
+* `prettyjson`: for prettified (non-minified) JSON.
+
+Cannot use this flag with `-v` / `--verbose`.
+
+## `--authentication` — use HTTP BasicAuth
+You can specify a `username:password` string as the value for the `-a` / `--authentication` flag. It will handle base64-encoding the string, and adding it to the `Authorization` header for requests.
+
+You can use `--authentication username:password` as a simpler alternative to `--headers Authorization="Basic <base64-string>`
+
 # License
 MIT License
 
