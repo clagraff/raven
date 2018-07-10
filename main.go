@@ -428,5 +428,7 @@ func main() {
 		handleStress()
 	case version.FullCommand():
 		fmt.Println("raven", getVersion())
+	default:
+		app.Usage(os.Stdout)
 	}
 }
