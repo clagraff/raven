@@ -2,6 +2,7 @@
 
 [![GoDoc](https://godoc.org/github.com/clagraff/raven?status.svg)](https://godoc.org/github.com/clagraff/raven)
 [![Go Report Card](http://goreportcard.com/badge/clagraff/raven)](http://goreportcard.com/report/clagraff/raven)
+[![CircleCI](https://circleci.com/gh/clagraff/raven/tree/master.svg?style=svg)](https://circleci.com/gh/clagraff/raven/tree/master)
 
 # Raven
 Stress test the hell outta your API with this simple CLI tool.
