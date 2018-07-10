@@ -48,8 +48,14 @@ var (
 	app     = kingpin.New("raven", "A command-line HTTP stress test application.")
 	verbose = app.Flag("verbose", "Enable verbose mode").Short('v').Bool()
 	headers = app.Flag("headers", "Specify HTTP headers").Short('h').StringMap()
-	auth    = app.Flag("authentication", "Provide a username:password").Short('a').String()
-	raw     = app.Flag("raw", "Output raw data in specified format").Short('r').Enum(
+	auth    = app.Flag(
+		"authentication",
+		"Provide a username:password",
+	).Short('a').String()
+	raw = app.Flag(
+		"raw",
+		"Output raw data in specified format",
+	).Short('r').Enum(
 		"json",
 		"prettyjson",
 		"csv",
@@ -57,44 +63,54 @@ var (
 
 	version = app.Command("version", "Print running version of raven.")
 
-	ramp     = app.Command("ramp", "Ramp up/down requests over a period of time.")
-	rampUp   = ramp.Command("up", "Ramp up requests over a period of time.")
-	rampDown = ramp.Command("down", "Ramp down requests over a period of time.")
-
-	rampUpMethod = rampUp.Arg("method", "HTTP request method").Required().String()
-	rampUpURL    = rampUp.Arg("url", "Target URL address").Required().URL()
-
-	rampDownMethod = rampDown.Arg("method", "HTTP request method").Required().String()
-	rampDownURL    = rampDown.Arg("url", "Target URL address").Required().URL()
-	rampUpAmt      = rampUp.Arg("max", "max number of requests to make").Required().Int()
-	rampDownAmt    = rampDown.Arg("max", "max number of requests to make").Required().Int()
-
 	do       = app.Command("do", "Immediately send requests")
 	doAmt    = do.Arg("amount", "Amount of requests to make").Required().Int()
 	doMethod = do.Arg("method", "HTTP request method").Required().String()
 	doURL    = do.Arg("url", "Target URL address").Required().URL()
 
-	stress           = app.Command("stress", `Ramp up requests until responses slow to within %x percent of a baseline`)
-	stressType       = stress.Arg("type", `Stress method type ("duration" or "status")`).Required().Enum("duration", "status")
-	stressMethod     = stress.Arg("method", "HTTP request method").Required().String()
-	stressURL        = stress.Arg("url", "Target URL address").Required().URL()
-	stressThreshold  = stress.Flag("threshold", `%xx percent threshold for valid responses`).Short('t').Default("10.0").Float()
-	stressStart      = stress.Flag("start", "Provide a starting amount for concurrent requests").Short('s').Default("1").Int()
-	stressIterations = stress.Flag("iterations", "Amount of iterations to perform for each step").Short('i').Default("10").Int()
-	stressDelay      = stress.Flag("delay", "Millisecond delay between iterations").Short('d').Default("500").Int()
+	stress = app.Command(
+		"stress",
+		`Ramp up requests until responses slow`+
+			`to within %x percent of a baseline`,
+	)
+	stressType = stress.Arg(
+		"type",
+		`Stress method type ("duration" or "status")`,
+	).Required().Enum("duration", "status")
+	stressMethod = stress.Arg(
+		"method",
+		"HTTP request method",
+	).Required().String()
+	stressURL       = stress.Arg("url", "Target URL address").Required().URL()
+	stressThreshold = stress.Flag(
+		"threshold",
+		`%xx percent threshold for valid responses`,
+	).Short('t').Default("10.0").Float()
+	stressStart = stress.Flag(
+		"start",
+		"Provide a starting amount for concurrent requests",
+	).Short('s').Default("1").Int()
+	stressIterations = stress.Flag(
+		"iterations",
+		"Amount of iterations to perform for each step",
+	).Short('i').Default("10").Int()
+	stressDelay = stress.Flag(
+		"delay",
+		"Millisecond delay between iterations",
+	).Short('d').Default("500").Int()
 )
 
 func parseMethod(method string) (string, error) {
 	validMethods := map[string]struct{}{
-		http.MethodGet:     struct{}{},
-		http.MethodHead:    struct{}{},
-		http.MethodPost:    struct{}{},
-		http.MethodPut:     struct{}{},
-		http.MethodPatch:   struct{}{},
-		http.MethodDelete:  struct{}{},
-		http.MethodConnect: struct{}{},
-		http.MethodOptions: struct{}{},
-		http.MethodTrace:   struct{}{},
+		http.MethodGet:     {},
+		http.MethodHead:    {},
+		http.MethodPost:    {},
+		http.MethodPut:     {},
+		http.MethodPatch:   {},
+		http.MethodDelete:  {},
+		http.MethodConnect: {},
+		http.MethodOptions: {},
+		http.MethodTrace:   {},
 	}
 
 	capsMethod := strings.ToUpper(method)
@@ -105,7 +121,13 @@ func parseMethod(method string) (string, error) {
 	return "", fmt.Errorf("invalid method: %v", method)
 }
 
-func performRequest(index int, client *http.Client, results chan result, wg *sync.WaitGroup, request *http.Request) {
+func performRequest(
+	index int,
+	client *http.Client,
+	results chan result,
+	wg *sync.WaitGroup,
+	request *http.Request,
+) {
 	start := time.Now()
 	resp, err := client.Do(request)
 	stop := time.Now()
@@ -131,7 +153,12 @@ func performRequest(index int, client *http.Client, results chan result, wg *syn
 	wg.Done()
 }
 
-func setupRequest(method, url string, headers map[string]string, basicAuth string) *http.Request {
+func setupRequest(
+	method,
+	url string,
+	headers map[string]string,
+	basicAuth string,
+) *http.Request {
 	req, err := http.NewRequest(method, url, nil)
 	if err != nil {
 		app.Fatalf(os.Stderr, fmt.Sprintf("could not setup request: %v", err))
@@ -318,7 +345,9 @@ func handleStress() {
 	}
 
 	avgBaseline := float64(baselineSum) / float64(*stressIterations)
-	maxResponseTime := time.Duration((1.00 + (*stressThreshold / 100.0)) * avgBaseline)
+	maxResponseTime := time.Duration(
+		(1.00 + (*stressThreshold / 100.0)) * avgBaseline,
+	)
 
 	fmt.Println("Step delay:                  ", time.Duration(*stressDelay))
 	fmt.Println("Baseline response time:      ", time.Duration(avgBaseline))
@@ -338,7 +367,10 @@ func handleStress() {
 		reqMax := 0
 
 		reqNon200 := 0
-		maxNon200 := int(*stressThreshold / 100.0 * float64(reqCount) * float64(*stressIterations))
+
+		maxNon200 := int(
+			*stressThreshold / 100.0 * float64(reqCount) * float64(*stressIterations),
+		)
 
 		if *stressType == "status" && *verbose {
 			fmt.Println("    Max acceptable non-200 amount:", maxNon200)
@@ -353,7 +385,12 @@ func handleStress() {
 			preparedRequests := make([]*http.Request, reqCount)
 
 			for i := 0; i < reqCount; i++ {
-				preparedRequests[i] = setupRequest(method, (*stressURL).String(), *headers, *auth)
+				preparedRequests[i] = setupRequest(
+					method,
+					(*stressURL).String(),
+					*headers,
+					*auth,
+				)
 			}
 
 			for i, r := range preparedRequests {
@@ -387,7 +424,7 @@ func handleStress() {
 
 		if *verbose {
 			fmt.Println("")
-			fmt.Println("\tAverage: ", time.Duration(avg))
+			fmt.Println("\tAverage: ", avg)
 			fmt.Println("\tMin:     ", time.Duration(reqMin))
 			fmt.Println("\tMax:     ", time.Duration(reqMax))
 			fmt.Println("\t200s:    ", reqNum-reqNon200)
@@ -403,7 +440,7 @@ func handleStress() {
 				maxResponseTime,
 			)
 			break
-		} else if (*stressType == "status") && int(reqNon200) > int(maxNon200) {
+		} else if (*stressType == "status") && reqNon200 > maxNon200 {
 			fmt.Printf(
 				"%d non-200s exceeds %d\n",
 				reqNon200,
