@@ -13,6 +13,10 @@ import (
 	kingpin "gopkg.in/alecthomas/kingpin.v1"
 )
 
+func getVersion() string {
+	return "1.0.0-alpha"
+}
+
 type result struct {
 	Index int `json:"index"`
 
@@ -50,6 +54,8 @@ var (
 		"prettyjson",
 		"csv",
 	)
+
+	version = app.Command("version", "Print running version of raven.")
 
 	ramp     = app.Command("ramp", "Ramp up/down requests over a period of time.")
 	rampUp   = ramp.Command("up", "Ramp up requests over a period of time.")
@@ -420,5 +426,7 @@ func main() {
 		handleDo()
 	case stress.FullCommand():
 		handleStress()
+	case version.FullCommand():
+		fmt.Println("raven", getVersion())
 	}
 }

@@ -6,6 +6,57 @@
 # Raven
 Stress test the hell outta your API with this simple CLI tool.
 
+# Get it!
+
+This is a Go program. If you already have Golang installed, installing `raven`
+is as simple as:
+
+```bash
+$ go install github.com/clagraff/raven
+$ raven version
+raven 1.0.0
+```
+
+# Stress Testing
+There are a couple ways to stress test an endpoint. You can:
+* perform N concurrent requests _at once_
+* ramp up the number of current requests until...
+    * ... response times exceed percent threshold of average
+    * ... number of non-200 responses exceeds a percent threshold
+
+## `do`
+
+```bash
+$ raven do 50 get http://localhost
+Total Requests:      50
+Elapsed Duration:    54.222567ms
+Setup duration:      183.107µs
+
+Average Request Duration:  23.841312ms
+Min Request Duration:      4.562712ms
+Max Request Duration:      53.17683ms
+
+Total Response Size (bytes):    561
+Average Response Size (bytes):  11
+
+Status Codes:
+	HTTP 200:	50
+```
+
+## `stress`
+
+```bash
+go run main.go stress duration get http://localhost:32768/
+Step delay:                   500ns
+Baseline response time:       4.306627ms
+Percent threshold:            10.000000 percent
+Max acceptable response time: 4.73729ms
+
+Performing 1 concurrent requests...
+Performing 2 concurrent requests...
+9.971642ms exceeds 4.73729ms
+```
+
 # License
 MIT License
 
