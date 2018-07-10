@@ -10,11 +10,166 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pkg/errors"
 	kingpin "gopkg.in/alecthomas/kingpin.v1"
 )
 
 func getVersion() string {
 	return "1.0.0-alpha"
+}
+
+func marshalTest(format string, tests []*endpointTest) (string, error) {
+	var output string
+	switch format {
+	case "json":
+		bites, err := json.Marshal(tests)
+		if err != nil {
+			return output, errors.Wrap(
+				err,
+				"could not JSON marshal test results",
+			)
+		}
+		output = string(bites)
+	case "prettyjson":
+		bites, err := json.MarshalIndent(tests, "", "    ")
+		if err != nil {
+			return output, errors.Wrap(
+				err,
+				"could not JSON marshal test results",
+			)
+		}
+		output = string(bites)
+	case "csv":
+		bites, err := json.Marshal(tests)
+		if err != nil {
+			return output, errors.Wrap(
+				err,
+				"could not JSON marshal test result",
+			)
+		}
+
+		testMap := make([]map[string]interface{}, 0)
+		err = json.Unmarshal(bites, &testMap)
+
+		var headers []string
+		var values []string
+
+		if len(testMap) == 0 {
+			return output, nil
+		}
+		for attr := range testMap[0] {
+			headers = append(headers, attr)
+		}
+
+		for _, m := range testMap {
+			var currValues []string
+			for _, attr := range headers {
+				currValues = append(
+					currValues,
+					fmt.Sprintf("%v", m[attr]),
+				)
+			}
+			values = append(values, strings.Join(currValues, ","))
+		}
+
+		headerRow := strings.Join(headers, ",")
+		valueRow := strings.Join(values, "\n")
+
+		output = fmt.Sprintf("%s\n%s", headerRow, valueRow)
+	default:
+		return output, errors.Errorf("invalid format: %s", format)
+	}
+
+	return output, nil
+}
+
+type endpointTest struct {
+	client   *http.Client
+	request  *http.Request
+	response *http.Response
+
+	elapsed time.Duration
+	err     error
+	index   int
+}
+
+func newEndpointTest(client *http.Client, request *http.Request) *endpointTest {
+	return &endpointTest{
+		client:  client,
+		request: request,
+	}
+}
+
+func (et *endpointTest) execute(index int) {
+	start := time.Now()
+
+	resp, err := et.client.Do(et.request)
+
+	stop := time.Now()
+	elapsed := stop.Sub(start)
+
+	et.response = resp
+	et.elapsed = elapsed
+	et.err = err
+	et.index = index
+}
+
+func (et endpointTest) MarshalJSON() ([]byte, error) {
+	testMap := map[string]interface{}{
+		"method": et.request.Method,
+		"url":    et.request.URL.String(),
+
+		"status": et.response.StatusCode,
+
+		"elapsed":             et.elapsed.String(),
+		"nanoseconds_elapsed": et.elapsed,
+		"error":               et.err,
+		"index":               et.index,
+	}
+
+	return json.Marshal(testMap)
+}
+
+func newHTTPClient() *http.Client {
+	netTransport := &http.Transport{
+		Dial:                (&net.Dialer{Timeout: 5 * time.Second}).Dial,
+		TLSHandshakeTimeout: 5 * time.Second,
+	}
+
+	client := &http.Client{
+		Timeout:   time.Second * 10,
+		Transport: netTransport,
+	}
+
+	return client
+}
+
+func newHTTPRequest(
+	method,
+	url,
+	basicAuth string,
+	headers map[string]string,
+) *http.Request {
+	req, err := http.NewRequest(method, url, nil)
+	if err != nil {
+		app.Fatalf(os.Stderr, fmt.Sprintf("could not setup request: %v", err))
+	}
+
+	if len(headers) > 0 {
+		for key, val := range headers {
+			req.Header.Set(key, val)
+		}
+	}
+
+	if len(basicAuth) > 0 {
+		parts := strings.Split(basicAuth, ":")
+		if len(parts) != 2 {
+			app.Fatalf(os.Stderr, "basic auth must be in the form username:password")
+		}
+		req.SetBasicAuth(parts[0], parts[1])
+	}
+
+	return req
 }
 
 type result struct {
@@ -194,6 +349,27 @@ func setupClient() *http.Client {
 	}
 
 	return client
+}
+
+func performDo(amount int, client *http.Client, reqFactory func() *http.Request) []*endpointTest {
+	group := new(sync.WaitGroup)
+	preparedTests := make([]*endpointTest, amount)
+
+	for i := 0; i < amount; i++ {
+		req := reqFactory()
+		preparedTests[i] = newEndpointTest(client, req)
+	}
+
+	for i, t := range preparedTests {
+		group.Add(1)
+		go func(index int, test *endpointTest) {
+			test.execute(index)
+			group.Done()
+		}(i, t)
+	}
+
+	group.Wait()
+	return preparedTests
 }
 
 func handleDo() {
@@ -458,9 +634,21 @@ func main() {
 		app.Fatalf(os.Stderr, "cannot user 'verbose' and 'raw' mode at same time")
 	}
 
+	c := newHTTPClient()
+
 	switch cmd {
 	case do.FullCommand():
-		handleDo()
+		//handleDo()
+		factory := func() *http.Request {
+			return newHTTPRequest(*doMethod, (*doURL).String(), *auth, *headers)
+		}
+		tests := performDo(*doAmt, c, factory)
+
+		out, err := marshalTest("csv", tests)
+		if err != nil {
+			panic(err)
+		}
+		fmt.Println(string(out))
 	case stress.FullCommand():
 		handleStress()
 	case version.FullCommand():
