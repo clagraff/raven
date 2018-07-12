@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pkg/errors"
 	kingpin "gopkg.in/alecthomas/kingpin.v1"
 )
 
@@ -17,31 +18,163 @@ func getVersion() string {
 	return "1.0.0-alpha"
 }
 
-type result struct {
-	Index int `json:"index"`
+func marshalTest(format string, tests []*endpointTest) (string, error) {
+	var output string
+	switch format {
+	case "json":
+		bites, err := json.Marshal(tests)
+		if err != nil {
+			return output, errors.Wrap(
+				err,
+				"could not JSON marshal test results",
+			)
+		}
+		output = string(bites)
+	case "prettyjson":
+		bites, err := json.MarshalIndent(tests, "", "    ")
+		if err != nil {
+			return output, errors.Wrap(
+				err,
+				"could not JSON marshal test results",
+			)
+		}
+		output = string(bites)
+	case "csv":
+		bites, err := json.Marshal(tests)
+		if err != nil {
+			return output, errors.Wrap(
+				err,
+				"could not JSON marshal test result",
+			)
+		}
 
-	Elapsed time.Duration `json:"elapsed"`
-	Stop    time.Time     `json:"stop"`
-	Start   time.Time     `json:"start"`
+		testMap := make([]map[string]interface{}, 0)
+		err = json.Unmarshal(bites, &testMap)
+		if err != nil {
+			return output, errors.Wrap(err, "could not unmarshal JSON")
+		}
 
-	URL        string `json:"url"`
-	Method     string `json:"method"`
-	Error      error  `json:"error"`
-	Size       int    `json:"size"`
-	StatusCode int    `json:"status_code"`
+		var headers []string
+		var values []string
+
+		if len(testMap) == 0 {
+			return output, nil
+		}
+		for attr := range testMap[0] {
+			headers = append(headers, attr)
+		}
+
+		for _, m := range testMap {
+			var currValues []string
+			for _, attr := range headers {
+				currValues = append(
+					currValues,
+					fmt.Sprintf("%v", m[attr]),
+				)
+			}
+			values = append(values, strings.Join(currValues, ","))
+		}
+
+		headerRow := strings.Join(headers, ",")
+		valueRow := strings.Join(values, "\n")
+
+		output = fmt.Sprintf("%s\n%s", headerRow, valueRow)
+	default:
+		return output, errors.Errorf("invalid format: %s", format)
+	}
+
+	return output, nil
 }
 
-func (res result) String() string {
-	return fmt.Sprintf(
-		"%v  %v\t%v %v\tHTTP %v\t%v\t%v bytes",
-		res.Start.Unix(),
-		res.Stop.Unix(),
-		res.Method,
-		res.URL,
-		res.StatusCode,
-		res.Elapsed,
-		res.Size,
-	)
+type endpointTest struct {
+	client   *http.Client
+	request  *http.Request
+	response *http.Response
+
+	elapsed time.Duration
+	err     error
+	index   int
+	step    int
+}
+
+func newEndpointTest(client *http.Client, request *http.Request) *endpointTest {
+	return &endpointTest{
+		client:  client,
+		request: request,
+	}
+}
+
+func (et *endpointTest) execute(step int, index int) {
+	start := time.Now()
+
+	resp, err := et.client.Do(et.request)
+	stop := time.Now()
+	elapsed := stop.Sub(start)
+
+	et.response = resp
+	et.elapsed = elapsed
+	et.err = err
+	et.index = index
+	et.step = step
+}
+
+func (et endpointTest) MarshalJSON() ([]byte, error) {
+	testMap := map[string]interface{}{
+		"method": et.request.Method,
+		"url":    et.request.URL.String(),
+
+		"status": et.response.StatusCode,
+
+		"elapsed":             et.elapsed.String(),
+		"nanoseconds_elapsed": et.elapsed,
+		"error":               et.err,
+		"index":               et.index,
+		"step":                et.step,
+	}
+
+	return json.Marshal(testMap)
+}
+
+func newHTTPClient() *http.Client {
+	netTransport := &http.Transport{
+		Dial:                (&net.Dialer{Timeout: 5 * time.Second}).Dial,
+		TLSHandshakeTimeout: 5 * time.Second,
+	}
+
+	client := &http.Client{
+		Timeout:   time.Second * 10,
+		Transport: netTransport,
+	}
+
+	return client
+}
+
+func newHTTPRequest(
+	method,
+	url,
+	basicAuth string,
+	headers map[string]string,
+) *http.Request {
+	req, err := http.NewRequest(strings.ToUpper(method), url, nil)
+	if err != nil {
+		app.Fatalf(os.Stderr, fmt.Sprintf("could not setup request: %v", err))
+	}
+
+	if len(headers) > 0 {
+		for key, val := range headers {
+			req.Header.Set(key, val)
+		}
+	}
+
+	if len(basicAuth) > 0 {
+		parts := strings.Split(basicAuth, ":")
+		if len(parts) != 2 {
+			app.Fatalf(os.Stderr, "basic auth must be in the form username:password")
+		}
+		req.SetBasicAuth(parts[0], parts[1])
+	}
+
+	return req
 }
 
 var (
@@ -100,354 +233,160 @@ var (
 	).Short('d').Default("500").Int()
 )
 
-func parseMethod(method string) (string, error) {
-	validMethods := map[string]struct{}{
-		http.MethodGet:     {},
-		http.MethodHead:    {},
-		http.MethodPost:    {},
-		http.MethodPut:     {},
-		http.MethodPatch:   {},
-		http.MethodDelete:  {},
-		http.MethodConnect: {},
-		http.MethodOptions: {},
-		http.MethodTrace:   {},
-	}
-
-	capsMethod := strings.ToUpper(method)
-	if _, ok := validMethods[capsMethod]; ok {
-		return capsMethod, nil
-	}
-
-	return "", fmt.Errorf("invalid method: %v", method)
-}
-
-func performRequest(
-	index int,
+func performDo(
+	amount int,
 	client *http.Client,
-	results chan result,
-	wg *sync.WaitGroup,
-	request *http.Request,
-) {
-	start := time.Now()
-	resp, err := client.Do(request)
-	stop := time.Now()
-	elapsed := stop.Sub(start)
+	reqFactory func() *http.Request,
+) []*endpointTest {
+	group := new(sync.WaitGroup)
+	preparedTests := make([]*endpointTest, amount)
 
-	res := result{
-		Elapsed: elapsed,
-		Index:   index,
-		Method:  request.Method,
-		Start:   start,
-		Stop:    stop,
-		URL:     request.URL.String(),
+	printVerbose("\tgenerating", amount, "requests")
+	for i := 0; i < amount; i++ {
+		req := reqFactory()
+		preparedTests[i] = newEndpointTest(client, req)
 	}
 
-	if err != nil {
-		res.Error = err
-	} else {
-		res.Size = int(resp.ContentLength)
-		res.StatusCode = resp.StatusCode
+	for i, t := range preparedTests {
+		printVerbose("\t\tperforming request", i)
+		group.Add(1)
+		go func(index int, test *endpointTest) {
+			test.execute(0, index)
+			group.Done()
+		}(i, t)
 	}
 
-	results <- res
-	wg.Done()
+	printVerbose("\twaiting requests to complete")
+	group.Wait()
+	return preparedTests
 }
 
-func setupRequest(
-	method,
-	url string,
-	headers map[string]string,
-	basicAuth string,
-) *http.Request {
-	req, err := http.NewRequest(method, url, nil)
-	if err != nil {
-		app.Fatalf(os.Stderr, fmt.Sprintf("could not setup request: %v", err))
+func getBaselineTests(
+	amount int,
+	client *http.Client,
+	reqFactory func() *http.Request,
+) []*endpointTest {
+	printVerbose("getting", amount, "baseline tests")
+	preparedTests := make([]*endpointTest, amount)
+
+	for i := 0; i < amount; i++ {
+		req := reqFactory()
+		preparedTests[i] = newEndpointTest(client, req)
 	}
 
-	if len(headers) > 0 {
-		for key, val := range headers {
-			req.Header.Set(key, val)
-		}
+	for index, test := range preparedTests {
+		printVerbose("\texecuting baseline test", index)
+		test.execute(0, index)
 	}
 
-	if len(basicAuth) > 0 {
-		parts := strings.Split(basicAuth, ":")
-		if len(parts) != 2 {
-			app.Fatalf(os.Stderr, "basic auth must be in the form username:password")
-		}
-		req.SetBasicAuth(parts[0], parts[1])
-	}
-
-	return req
+	return preparedTests
 }
 
-func setupClient() *http.Client {
-	var netTransport = &http.Transport{
-		Dial: (&net.Dialer{
-			Timeout: 5 * time.Second,
-		}).Dial,
-		TLSHandshakeTimeout: 5 * time.Second,
-	}
-	client := &http.Client{
-		Timeout:   time.Second * 10,
-		Transport: netTransport,
-	}
-
-	return client
-}
-
-func handleDo() {
-	client := setupClient()
-
-	method, err := parseMethod(*doMethod)
-	if err != nil {
-		app.Fatalf(os.Stderr, fmt.Sprintf("could not parse request method: %v", err))
+func performStress(
+	stopType string,
+	startingStep int,
+	threshold float64,
+	stepIterations int,
+	stepDelay time.Duration,
+	client *http.Client,
+	reqFactory func() *http.Request,
+) []*endpointTest {
+	// First, calculate baseline average
+	baselineTests := getBaselineTests(stepIterations, client, reqFactory)
+	baselineSum := time.Duration(0)
+	for _, t := range baselineTests {
+		baselineSum = baselineSum + t.elapsed
 	}
 
-	wg := new(sync.WaitGroup)
-	results := make(chan result, *doAmt)
-	preparedRequests := make([]*http.Request, *doAmt)
-
-	execStart := time.Now()
-	setupStart := time.Now()
-
-	for i := 0; i < *doAmt; i++ {
-		preparedRequests[i] = setupRequest(method, (*doURL).String(), *headers, *auth)
-	}
-
-	for i, r := range preparedRequests {
-		wg.Add(1)
-		go performRequest(i, client, results, wg, r)
-	}
-
-	setupStop := time.Now()
-
-	wg.Wait()
-	close(results)
-	execStop := time.Now()
-
-	if len(*raw) > 0 {
-		var allResults []result
-		for r := range results {
-			allResults = append(allResults, r)
-		}
-
-		if *raw == "prettyjson" {
-			bytes, err := json.MarshalIndent(allResults, "", "    ")
-			if err != nil {
-				app.Fatalf(os.Stderr, fmt.Sprintf("could not render raw output: %v", err))
-			}
-			fmt.Println(string(bytes))
-		} else if *raw == "json" {
-			bytes, err := json.Marshal(allResults)
-			if err != nil {
-				app.Fatalf(os.Stderr, fmt.Sprintf("could not render raw output: %v", err))
-			}
-			fmt.Println(string(bytes))
-		} else if *raw == "csv" {
-			fmt.Println("index,elapsed,stop,start,url,method,error,size,status_code")
-			for _, r := range allResults {
-				fmt.Printf(
-					"%v,%f,%v,%v,%v,%v,%v,%v,%v\n",
-					r.Index,
-					float64(r.Elapsed)/float64(time.Second),
-					r.Stop,
-					r.Start,
-					r.URL,
-					r.Method,
-					r.Error,
-					r.Size,
-					r.StatusCode,
-				)
-			}
-		}
-
-		return
-	}
-
-	statusMap := map[int]int{}
-	sizeSum := 0
-	sum := 0
-	min := -1
-	max := 0
-
-	for r := range results {
-		if i, ok := statusMap[r.StatusCode]; ok {
-			statusMap[r.StatusCode] = i + 1
-		} else {
-			statusMap[r.StatusCode] = 1
-		}
-
-		e := int(r.Elapsed)
-
-		sizeSum = sizeSum + r.Size
-		sum = sum + e
-		if e > max {
-			max = e
-		}
-		if e < min || min == -1 {
-			min = e
-		}
-	}
-
-	fmt.Println("Total Requests:     ", *doAmt)
-	fmt.Println("Elapsed Duration:   ", execStop.Sub(execStart))
-	if *verbose {
-		fmt.Println("Setup duration:     ", setupStop.Sub(setupStart))
-	}
-
-	fmt.Println("")
-
-	fmt.Println("Average Request Duration: ", time.Duration(sum / *doAmt))
-	fmt.Println("Min Request Duration:     ", time.Duration(min))
-	fmt.Println("Max Request Duration:     ", time.Duration(max))
-
-	fmt.Println("")
-
-	fmt.Println("Total Response Size (bytes):   ", sizeSum)
-	fmt.Println("Average Response Size (bytes): ", sizeSum / *doAmt)
-
-	fmt.Println("")
-
-	fmt.Println("Status Codes:")
-	for code, amt := range statusMap {
-		fmt.Printf("\tHTTP %v:\t%v\n", code, amt)
-	}
-}
-
-func handleStress() {
-	if *stressStart <= 0 {
-		app.Fatalf(os.Stderr, "'-s' must be a minimum of '1' request concurrently.")
-	}
-
-	client := setupClient()
-
-	method, err := parseMethod(*stressMethod)
-	if err != nil {
-		app.Fatalf(os.Stderr, fmt.Sprintf("could not parse request method: %v", err))
-	}
-
-	baselineSum := 0
-
-	for i := 0; i < *stressIterations; i++ {
-		r := setupRequest(method, (*stressURL).String(), *headers, *auth)
-
-		start := time.Now()
-		_, err := client.Do(r)
-		if err != nil {
-			app.Fatalf(os.Stderr, fmt.Sprintf("request failed: %v", err))
-		}
-
-		stop := time.Now()
-		elapsed := stop.Sub(start)
-
-		baselineSum = baselineSum + int(elapsed)
-	}
-
-	avgBaseline := float64(baselineSum) / float64(*stressIterations)
-	maxResponseTime := time.Duration(
-		(1.00 + (*stressThreshold / 100.0)) * avgBaseline,
+	baselineAverage := time.Duration(
+		float64(baselineSum) / float64(stepIterations),
 	)
 
-	fmt.Println("Step delay:                  ", time.Duration(*stressDelay))
-	fmt.Println("Baseline response time:      ", time.Duration(avgBaseline))
-	fmt.Printf("Percent threshold:            %f percent\n", *stressThreshold)
-	if *stressType == "duration" {
-		fmt.Printf("Max acceptable response time: %v\n\n", maxResponseTime)
-	} else {
-		fmt.Println("")
+	// max acceptable elapse duration (if using "duration" type)
+	maxAcceptableElapse := time.Duration(
+		(1.00 + (threshold / 100.00)) * float64(baselineAverage),
+	)
+
+	maxAcceptableNon200s := int(
+		(1.00 + (threshold / 100.00)) * float64(stepIterations),
+	)
+
+	printVerbose("average baseline duration", baselineAverage)
+	printVerbose("max acceptable duration", maxAcceptableElapse)
+	printVerbose("max acceptable non-200s", maxAcceptableNon200s)
+
+	completedTests := make([]*endpointTest, 0)
+
+	for step := startingStep; ; step++ {
+
+		completedStepTests := make([]*endpointTest, 0)
+		maxFailedElapseTests := int(
+			((100.00 - threshold) / 100.00) * float64(stepIterations*step),
+		)
+		printVerbose("current max failed duration tests", maxFailedElapseTests)
+		printVerbose("\tstarting step", step)
+
+		for iteration := 0; iteration < stepIterations; iteration++ {
+			printVerbose("\t\tstarting iteration", iteration)
+
+			group := new(sync.WaitGroup)
+			preparedTests := make([]*endpointTest, step)
+
+			for i := 0; i < step; i++ {
+				req := reqFactory()
+				preparedTests[i] = newEndpointTest(client, req)
+			}
+
+			for i, t := range preparedTests {
+				group.Add(1)
+				printVerbose(
+					"\t\t\texecuting request",
+					i+iteration+((step-1)*stepIterations),
+				)
+				go func(index int, test *endpointTest) {
+					test.execute(step, iteration+(step*stepIterations))
+					group.Done()
+				}(i, t)
+			}
+
+			group.Wait()
+			completedStepTests = append(completedStepTests, preparedTests...)
+			completedTests = append(completedTests, preparedTests...)
+			time.Sleep(stepDelay)
+		}
+
+		failedElapsedTests := 0
+		non200s := 0
+		totalElapse := time.Duration(0)
+
+		for _, test := range completedStepTests {
+			totalElapse = totalElapse + test.elapsed
+			if test.response != nil && test.response.StatusCode != 200 {
+				non200s = non200s + 1
+				printVerbose("\t\t\tNon-200s:", non200s)
+			}
+
+			if test.elapsed > maxAcceptableElapse {
+				failedElapsedTests = failedElapsedTests + 1
+				printVerbose("\t\t\tFailed elapsed tests:", failedElapsedTests)
+			}
+		}
+
+		if stopType == "duration" && failedElapsedTests > maxFailedElapseTests {
+			printVerbose("max duration exceeded by", failedElapsedTests)
+			break
+		} else if stopType == "status" && non200s > maxAcceptableNon200s {
+			printVerbose("max non-200s exceeded by", non200s)
+			break
+		}
 	}
 
-	for reqCount := *stressStart; ; reqCount++ {
-		fmt.Printf("Performing %d concurrent requests...\n", reqCount)
+	return completedTests
+}
 
-		reqSum := 0
-		reqNum := 0
-		reqMin := -1
-		reqMax := 0
-
-		reqNon200 := 0
-
-		maxNon200 := int(
-			*stressThreshold / 100.0 * float64(reqCount) * float64(*stressIterations),
-		)
-
-		if *stressType == "status" && *verbose {
-			fmt.Println("    Max acceptable non-200 amount:", maxNon200)
-		}
-		for loop := 0; loop < *stressIterations; loop++ {
-			if *verbose {
-				fmt.Println("\t...performing iteration", loop, "of", *stressIterations)
-			}
-
-			wg := new(sync.WaitGroup)
-			results := make(chan result, reqCount)
-			preparedRequests := make([]*http.Request, reqCount)
-
-			for i := 0; i < reqCount; i++ {
-				preparedRequests[i] = setupRequest(
-					method,
-					(*stressURL).String(),
-					*headers,
-					*auth,
-				)
-			}
-
-			for i, r := range preparedRequests {
-				wg.Add(1)
-				go performRequest(i, client, results, wg, r)
-			}
-
-			wg.Wait()
-			close(results)
-
-			for r := range results {
-				e := int(r.Elapsed)
-				reqSum = reqSum + e
-				reqNum = reqNum + 1
-
-				if e > reqMax {
-					reqMax = e
-				}
-				if e < reqMin || reqMin == -1 {
-					reqMin = e
-				}
-
-				if r.StatusCode != 200 {
-					reqNon200 = reqNon200 + 1
-				}
-			}
-			time.Sleep(time.Duration(*stressDelay * int(time.Millisecond)))
-		}
-
-		avg := time.Duration(float64(reqSum) / float64(reqNum))
-
-		if *verbose {
-			fmt.Println("")
-			fmt.Println("\tAverage: ", avg)
-			fmt.Println("\tMin:     ", time.Duration(reqMin))
-			fmt.Println("\tMax:     ", time.Duration(reqMax))
-			fmt.Println("\t200s:    ", reqNum-reqNon200)
-			fmt.Println("\tNon200s: ", reqNon200)
-
-			fmt.Println("")
-		}
-
-		if (*stressType == "duration") && avg > maxResponseTime {
-			fmt.Printf(
-				"%v exceeds %v\n",
-				avg,
-				maxResponseTime,
-			)
-			break
-		} else if (*stressType == "status") && reqNon200 > maxNon200 {
-			fmt.Printf(
-				"%d non-200s exceeds %d\n",
-				reqNon200,
-				maxNon200,
-			)
-			break
-		}
+func printVerbose(items ...interface{}) {
+	if *verbose {
+		fmt.Println(items...)
 	}
 }
 
@@ -458,11 +397,170 @@ func main() {
 		app.Fatalf(os.Stderr, "cannot user 'verbose' and 'raw' mode at same time")
 	}
 
+	c := newHTTPClient()
+
 	switch cmd {
 	case do.FullCommand():
-		handleDo()
+		factory := func() *http.Request {
+			return newHTTPRequest(*doMethod, (*doURL).String(), *auth, *headers)
+		}
+		tests := performDo(*doAmt, c, factory)
+
+		if len(*raw) > 0 {
+			out, err := marshalTest(*raw, tests)
+			if err != nil {
+				panic(err)
+			}
+
+			fmt.Println(out)
+		} else {
+			elapsedSum := time.Duration(0)
+			maxElapsed := time.Duration(0)
+			minElapsed := time.Duration(0)
+			errored := time.Duration(0)
+
+			statuses := make(map[int]int)
+			for _, test := range tests {
+				elapsedSum = elapsedSum + test.elapsed
+				if test.elapsed > maxElapsed {
+					maxElapsed = test.elapsed
+				}
+				if test.elapsed < minElapsed || minElapsed == 0 {
+					minElapsed = test.elapsed
+				}
+
+				if test.err != nil {
+					errored = errored + 1
+				} else {
+					status := test.response.StatusCode
+					if count, ok := statuses[status]; ok {
+						statuses[status] = count + 1
+					} else {
+						statuses[status] = 1
+					}
+				}
+			}
+
+			avgElapsed := time.Duration(float64(elapsedSum) / float64(*doAmt))
+			fmt.Println("Total requests:", *doAmt)
+			fmt.Println("Errored requests:", errored)
+			fmt.Println("Max elapsed:", maxElapsed)
+			fmt.Println("Min elapsed:", minElapsed)
+			fmt.Println("Avg elapsed:", avgElapsed)
+
+			if len(statuses) > 0 {
+				fmt.Println("\nStatus Code counts:")
+				for code, amount := range statuses {
+					fmt.Println("\tHTTP", code, "-", amount)
+				}
+			}
+		}
 	case stress.FullCommand():
-		handleStress()
+		factory := func() *http.Request {
+			return newHTTPRequest(*stressMethod, (*stressURL).String(), *auth, *headers)
+		}
+
+		tests := performStress(
+			*stressType,
+			*stressStart,
+			*stressThreshold,
+			*stressIterations,
+			time.Duration(*stressDelay)*time.Millisecond,
+			c,
+			factory,
+		)
+
+		if len(*raw) > 0 {
+			out, err := marshalTest(*raw, tests)
+			if err != nil {
+				panic(err)
+			}
+
+			fmt.Println(out)
+		} else {
+			elapsedSum := time.Duration(0)
+			maxElapsed := time.Duration(0)
+			minElapsed := time.Duration(0)
+			errored := 0
+
+			statuses := make(map[int]int)
+			testsByStep := make(map[int][]*endpointTest)
+			maxStep := 0
+
+			for _, test := range tests {
+				if _, ok := testsByStep[test.step]; ok {
+					testsByStep[test.step] = append(testsByStep[test.step], test)
+				} else {
+					testsByStep[test.step] = []*endpointTest{test}
+				}
+
+				if test.step > maxStep {
+					maxStep = test.step
+				}
+
+				elapsedSum = elapsedSum + test.elapsed
+				if test.elapsed > maxElapsed {
+					maxElapsed = test.elapsed
+				}
+				if test.elapsed < minElapsed || minElapsed == 0 {
+					minElapsed = test.elapsed
+				}
+
+				if test.err != nil {
+					errored = errored + 1
+				} else {
+					status := test.response.StatusCode
+					if count, ok := statuses[status]; ok {
+						statuses[status] = count + 1
+					} else {
+						statuses[status] = 1
+					}
+				}
+			}
+
+			avgElapsed := time.Duration(float64(elapsedSum) / float64(len(tests)))
+			fmt.Println("Total requests:", len(tests))
+			fmt.Println("Errored requests:", errored)
+			fmt.Println("Max elapsed:", maxElapsed)
+			fmt.Println("Min elapsed:", minElapsed)
+			fmt.Println("Avg elapsed:", avgElapsed)
+
+			fmt.Println("Max step reached:", maxStep)
+
+			if len(statuses) > 0 {
+				fmt.Println("\nStatus Code counts:")
+				for code, amount := range statuses {
+					fmt.Println("\tHTTP", code, "-", amount)
+				}
+			}
+
+			fmt.Println("\nStep Breakdown")
+			for step := *stressStart; step < *stressStart+len(testsByStep); step++ {
+				stepTests := testsByStep[step]
+
+				sum := time.Duration(0)
+				max := time.Duration(0)
+				min := time.Duration(0)
+
+				for _, t := range stepTests {
+					sum = sum + t.elapsed
+					if t.elapsed > max {
+						max = t.elapsed
+					}
+					if t.elapsed < min || min == 0 {
+						min = t.elapsed
+					}
+				}
+
+				avg := time.Duration(float64(sum) / float64(len(tests)))
+				fmt.Println("\n\tInformation for Step", step)
+				fmt.Println("\t\tMax elapsed:", max)
+				fmt.Println("\t\tMin elapsed:", min)
+				fmt.Println("\t\tAvg elapsed:", avg)
+
+			}
+		}
+
 	case version.FullCommand():
 		fmt.Println("raven", getVersion())
 	default:
