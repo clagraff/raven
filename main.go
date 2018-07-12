@@ -357,12 +357,14 @@ func performDo(amount int, client *http.Client, reqFactory func() *http.Request)
 	group := new(sync.WaitGroup)
 	preparedTests := make([]*endpointTest, amount)
 
+	printVerbose("\tgenerating", amount, "requests")
 	for i := 0; i < amount; i++ {
 		req := reqFactory()
 		preparedTests[i] = newEndpointTest(client, req)
 	}
 
 	for i, t := range preparedTests {
+		printVerbose("\t\tperforming request", i)
 		group.Add(1)
 		go func(index int, test *endpointTest) {
 			test.execute(0, index)
@@ -370,6 +372,7 @@ func performDo(amount int, client *http.Client, reqFactory func() *http.Request)
 		}(i, t)
 	}
 
+	printVerbose("\twaiting requests to complete")
 	group.Wait()
 	return preparedTests
 }
