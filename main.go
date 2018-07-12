@@ -50,6 +50,9 @@ func marshalTest(format string, tests []*endpointTest) (string, error) {
 
 		testMap := make([]map[string]interface{}, 0)
 		err = json.Unmarshal(bites, &testMap)
+		if err != nil {
+			return output, errors.Wrap(err, "could not unmarshal JSON")
+		}
 
 		var headers []string
 		var values []string
@@ -174,33 +177,6 @@ func newHTTPRequest(
 	return req
 }
 
-type result struct {
-	Index int `json:"index"`
-
-	Elapsed time.Duration `json:"elapsed"`
-	Stop    time.Time     `json:"stop"`
-	Start   time.Time     `json:"start"`
-
-	URL        string `json:"url"`
-	Method     string `json:"method"`
-	Error      error  `json:"error"`
-	Size       int    `json:"size"`
-	StatusCode int    `json:"status_code"`
-}
-
-func (res result) String() string {
-	return fmt.Sprintf(
-		"%v  %v\t%v %v\tHTTP %v\t%v\t%v bytes",
-		res.Start.Unix(),
-		res.Stop.Unix(),
-		res.Method,
-		res.URL,
-		res.StatusCode,
-		res.Elapsed,
-		res.Size,
-	)
-}
-
 var (
 	app     = kingpin.New("raven", "A command-line HTTP stress test application.")
 	verbose = app.Flag("verbose", "Enable verbose mode").Short('v').Bool()
@@ -257,103 +233,11 @@ var (
 	).Short('d').Default("500").Int()
 )
 
-func parseMethod(method string) (string, error) {
-	validMethods := map[string]struct{}{
-		http.MethodGet:     {},
-		http.MethodHead:    {},
-		http.MethodPost:    {},
-		http.MethodPut:     {},
-		http.MethodPatch:   {},
-		http.MethodDelete:  {},
-		http.MethodConnect: {},
-		http.MethodOptions: {},
-		http.MethodTrace:   {},
-	}
-
-	capsMethod := strings.ToUpper(method)
-	if _, ok := validMethods[capsMethod]; ok {
-		return capsMethod, nil
-	}
-
-	return "", fmt.Errorf("invalid method: %v", method)
-}
-
-func performRequest(
-	index int,
+func performDo(
+	amount int,
 	client *http.Client,
-	results chan result,
-	wg *sync.WaitGroup,
-	request *http.Request,
-) {
-	start := time.Now()
-	resp, err := client.Do(request)
-	stop := time.Now()
-	elapsed := stop.Sub(start)
-
-	res := result{
-		Elapsed: elapsed,
-		Index:   index,
-		Method:  request.Method,
-		Start:   start,
-		Stop:    stop,
-		URL:     request.URL.String(),
-	}
-
-	if err != nil {
-		res.Error = err
-	} else {
-		res.Size = int(resp.ContentLength)
-		res.StatusCode = resp.StatusCode
-	}
-
-	results <- res
-	wg.Done()
-}
-
-func setupRequest(
-	method,
-	url string,
-	headers map[string]string,
-	basicAuth string,
-) *http.Request {
-	req, err := http.NewRequest(method, url, nil)
-	if err != nil {
-		app.Fatalf(os.Stderr, fmt.Sprintf("could not setup request: %v", err))
-	}
-
-	if len(headers) > 0 {
-		for key, val := range headers {
-			req.Header.Set(key, val)
-		}
-	}
-
-	if len(basicAuth) > 0 {
-		parts := strings.Split(basicAuth, ":")
-		if len(parts) != 2 {
-			app.Fatalf(os.Stderr, "basic auth must be in the form username:password")
-		}
-		req.SetBasicAuth(parts[0], parts[1])
-	}
-
-	return req
-}
-
-func setupClient() *http.Client {
-	var netTransport = &http.Transport{
-		Dial: (&net.Dialer{
-			Timeout: 5 * time.Second,
-		}).Dial,
-		TLSHandshakeTimeout: 5 * time.Second,
-	}
-	client := &http.Client{
-		Timeout:   time.Second * 10,
-		Transport: netTransport,
-	}
-
-	return client
-}
-
-func performDo(amount int, client *http.Client, reqFactory func() *http.Request) []*endpointTest {
+	reqFactory func() *http.Request,
+) []*endpointTest {
 	group := new(sync.WaitGroup)
 	preparedTests := make([]*endpointTest, amount)
 
@@ -377,7 +261,11 @@ func performDo(amount int, client *http.Client, reqFactory func() *http.Request)
 	return preparedTests
 }
 
-func getBaselineTests(amount int, client *http.Client, reqFactory func() *http.Request) []*endpointTest {
+func getBaselineTests(
+	amount int,
+	client *http.Client,
+	reqFactory func() *http.Request,
+) []*endpointTest {
 	printVerbose("getting", amount, "baseline tests")
 	preparedTests := make([]*endpointTest, amount)
 
@@ -451,7 +339,10 @@ func performStress(
 
 			for i, t := range preparedTests {
 				group.Add(1)
-				printVerbose("\t\t\texecuting request", i+iteration+((step-1)*stepIterations))
+				printVerbose(
+					"\t\t\texecuting request",
+					i+iteration+((step-1)*stepIterations),
+				)
 				go func(index int, test *endpointTest) {
 					test.execute(step, iteration+(step*stepIterations))
 					group.Done()
@@ -521,7 +412,7 @@ func main() {
 				panic(err)
 			}
 
-			fmt.Println(string(out))
+			fmt.Println(out)
 		} else {
 			elapsedSum := time.Duration(0)
 			maxElapsed := time.Duration(0)
@@ -585,7 +476,7 @@ func main() {
 				panic(err)
 			}
 
-			fmt.Println(string(out))
+			fmt.Println(out)
 		} else {
 			elapsedSum := time.Duration(0)
 			maxElapsed := time.Duration(0)
