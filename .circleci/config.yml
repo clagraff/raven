@@ -61,13 +61,14 @@ workflows:
     jobs:
       - deps
       - linting:
-          requres:
+          requires:
             - deps
       - tests:
           requires:
             - deps
       - build:
           requires:
+            - linting
             - tests
           filters:
             branches:
