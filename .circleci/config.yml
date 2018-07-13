@@ -25,30 +25,14 @@ jobs:
       - run: go get -v -t -d ./...
       - run: go test -v --coverprofile cover.out ./...
 
-  build:
-    docker:
-      - image: circleci/golang:1.9
-      
-    working_directory: /go/src/github.com/clagraff/raven
-    steps:
-      - checkout
-      - attach_workspace:
-          at: ./artifacts
-      - run: go get -v -t -d ./...
-      - run: go get -u github.com/mitchellh/gox
-      - run: gox --output="artifacts/{{.Dir}}_{{.OS}}_{{.Arch}}"
-
-
   publish:
     docker:
       - image: circleci/golang:1.9
-      
     working_directory: /go/src/github.com/clagraff/raven
     steps:
       - checkout
       - attach_workspace:
           at: ./artifacts
-      - run: ls
       - run: go get -v -t -d ./...
       - run: go get github.com/tcnksm/ghr
       - run: go get -u github.com/mitchellh/gox
@@ -65,10 +49,7 @@ workflows:
     jobs:
       - linting
       - tests
-      - build:
+      - publish:
           requires:
             - linting
             - tests
-      - publish:
-          requires:
-            - build
