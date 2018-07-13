@@ -59,6 +59,7 @@ workflows:
   version: 2
   main:
     jobs:
+      - deps
       - linting:
           requres:
             - deps
