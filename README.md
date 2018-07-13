@@ -31,126 +31,217 @@ $ raven stress duration get http://localhost/
 $ raven stress status get http://localhost/
 ```
 
-# Stress Testing
-There are a couple ways to stress test an endpoint. You can:
-* perform N concurrent requests _at once_
-* ramp up the number of current requests until...
-    * ... response times exceed percent threshold of average
-    * ... number of non-200 responses exceeds a percent threshold
 
-## `do` — perform requests at once
-The `do` command is used to perform multiple requests against an endpoint all at once.
-
-It takes three main arguments:
-* `amount`: how many requests to generate
-* `method`: the HTTP method to use
-* `url`: the actual URL to hit
-
-Here is an example:
+## Tutorial
+### Perform a batch stress test
+> Perform multiple requests against an endpoint all at once
 
 ```bash
-$ raven do 50 get http://localhost
-Total Requests:      50
-Elapsed Duration:    54.222567ms
-Setup duration:      183.107µs
+$ raven do 50 get http://localhost:8000
+Total requests: 50
+Errored requests: 0
+Max elapsed: 1.008389032s
+Min elapsed: 3.059769ms
+Avg elapsed: 145.083852ms
 
-Average Request Duration:  23.841312ms
-Min Request Duration:      4.562712ms
-Max Request Duration:      53.17683ms
-
-Total Response Size (bytes):    561
-Average Response Size (bytes):  11
-
-Status Codes:
-	HTTP 200:	50
+Status Code counts:
+	HTTP 200 - 50
 ```
 
-## `stress` — stress an endpoint to hell...
-The `stress` command is used to ramp-up concurrent requests to an endpoint until it breaks.
-There are two `types` of available stress-testing:
-1. `duration`, where the test stops when responses slow
-2. `status`, where the test stops when responses result in too many non-200s.
 
-These two types, `duration` and `status`, are defined below:
+The command syntax is:
+`raven [<app flags>] do <requests amount> <method> <full url>`
 
-### Duration — test until response times slow
-Ramp up concurrent requests sent until the respponse duration slows down.
+The `do` command takes no additional flags.
+
+### Perform continious stress testing
+> Ramp-up concurrent requests until responses slow or errors occur
 
 ```bash
-$ raven stress duration get http://localhost/
-Step delay:                   500ns
-Baseline response time:       4.306627ms
-Percent threshold:            10.000000 percent
-Max acceptable response time: 4.73729ms
+$ raven stress duration get http://localhost:8000
+Total requests: 30
+Errored requests: 0
+Max elapsed: 4.14156ms
+Min elapsed: 1.307548ms
+Avg elapsed: 3.078331ms
+Max step reached: 2
 
-Performing 1 concurrent requests...
-Performing 2 concurrent requests...
-9.971642ms exceeds 4.73729ms
+Status Code counts:
+	HTTP 200 - 30
+
+Step Breakdown
+
+	Information for Step 1
+		Max elapsed: 3.009577ms
+		Min elapsed: 1.307548ms
+		Avg elapsed: 903.564µs
+
+	Information for Step 2
+		Max elapsed: 4.14156ms
+		Min elapsed: 2.498984ms
+		Avg elapsed: 2.174766ms
 ```
 
-### Status — test until too many non-200 responses
-Ramp up concurrent requests sent until responses start returning non-200 HTTP status codes.
+The command syntax is:
+
+`raven [<app flags>] stress [<command flags>] <type> <method> <full url>`
+
+There are two commands: `duration` and `status`.
+
+* `duration` increases concurrent requests until response times slow
+* `status` increases concurrent requests until too many non-`200` status codes occur
+
+#### Steps, iterations, and flags
+```bash
+$ raven  stress -t 20 -s 2 -d 300 duration get http://localhost:8000
+Total requests: 140
+Errored requests: 0
+Max elapsed: 3.912831ms
+Min elapsed: 1.458454ms
+Avg elapsed: 2.706491ms
+Max step reached: 5
+
+Status Code counts:
+	HTTP 200 - 140
+
+Step Breakdown
+
+	Information for Step 2
+		Max elapsed: 2.881158ms
+		Min elapsed: 1.458454ms
+		Avg elapsed: 345.847µs
+
+	Information for Step 3
+		Max elapsed: 3.014396ms
+		Min elapsed: 1.90508ms
+		Avg elapsed: 549.612µs
+
+	Information for Step 4
+		Max elapsed: 3.30094ms
+		Min elapsed: 2.083939ms
+		Avg elapsed: 734.38µs
+
+	Information for Step 5
+		Max elapsed: 3.912831ms
+		Min elapsed: 2.255182ms
+		Avg elapsed: 1.07665ms
+```
+
+Each `step` when using the `stress` command represents how many concurrent requests will be sent.
+
+The `--iterations=10` flag determines how many iterations of requests will be performed for each step.
+
+The `--start=1` flag determines the starting step.
+
+The `--delay=500` flag determines how many milliseconds to delay between each iteration.
+
+The `--threshold=10.0` flag is used to determine the percent of requests per step which can fail before the
+test stops.
+
+### (global) Basic Auth for stress tests
+> Provide a username & password to enable Basic Auth for requests
 
 ```bash
-$ raven stress status get http://localhost/
-Step delay:                   500ns
-Baseline response time:       1.321324947s
-Percent threshold:            10.000000 percent
+$ raven -a "johndoe:hunter2" do 50 get http://localhost:8000
+Total requests: 50
+Errored requests: 0
+Max elapsed: 1.010340952s
+Min elapsed: 2.937627ms
+Avg elapsed: 325.627831ms
 
-Performing 1 concurrent requests...
-    Max acceptable non-200 amount: 1
-	...performing iteration 0 of 10
-	...performing iteration 1 of 10
-	...performing iteration 2 of 10
-	...performing iteration 3 of 10
-	...performing iteration 4 of 10
-	...performing iteration 5 of 10
-	...performing iteration 6 of 10
-	...performing iteration 7 of 10
-	...performing iteration 8 of 10
-	...performing iteration 9 of 10
-
-	Average:  1.456330813s
-	Min:      692.831102ms
-	Max:      4.667752624s
-	200s:     10
-	Non200s:  0
-	
-# etc etc etc
+Status Code counts:
+	HTTP 200 - 50
 ```
 
-# Global flags
-## `--help` — output help text
-`--help` will show the help text. 
-*note*: `-h` is **not** shorthand for the `--help` flag.
+Provide a `username:password` to the application flag `-a / --authentication`
+and all requests will use those credentials via Basic Auth
 
-## `--verbose` — enable verbose mode
-Cannot be used if `--raw` is used.
-`-v` and `--verbose` result in the application providing additional information and context while it executes.
+**This flag is passed _before_ the command name**
 
-## `--headers` — specify HTTP headers
-`--headers` and `-h` are used to provide `key=value` pairs of HTTP headers.
+The username and password will be `base64`-encoded and passed in the
+`Authorization` header for you automatically.
 
-For example:
+### (global) Supply custom headers
+> Provide customer headers for all requests
 
 ```bash
-$ raven -h Authorization="Basic QXp1cmVEaWFtb25kOmh1bnRlcjI=" -h "Content-Type"="application/json" do 50 get http://localhost
+$ raven -h Accept=text/plain -h Cache-Control=no-cache do 50 get http://localhost:8000
+Total requests: 50
+Errored requests: 37ns
+Max elapsed: 2.009915103s
+Min elapsed: 3.246405ms
+Avg elapsed: 205.514321ms
+
+Status Code counts:
+	HTTP 200 - 50
 ```
 
-## `--raw` — specify raw output type
-You can use `-r` and `--raw` to have raw data outputted for the metrics collected while performing the tests, instead of the normal human-readable text.
+You can provide multiple `key=value` pairs to be supplied as additional
+headers to requests using the `-h / --headers` flag.
 
-You have the following raw types:
-* `csv`: for comma-separated values
-* `json`: for minified JSON
-* `prettyjson`: for prettified (non-minified) JSON.
+**These flags are passed _before_ the command name**
 
-Cannot use this flag with `-v` / `--verbose`.
+### (global) Display raw data
+> Display raw request/response data in the form of CSV or JSON
 
-## `--authentication` — use HTTP BasicAuth
-You can specify a `username:password` string as the value for the `-a` / `--authentication` flag. It will handle base64-encoding the string, and adding it to the `Authorization` header for requests.
+```bash
+$ raven --raw csv do 5 get http://localhost:8000
+nanoseconds_elapsed,status,step,url,elapsed,error,index,method
+6.656024e+06,200,0,http://localhost:8000,6.656024ms,<nil>,0,GET
+5.450617e+06,200,0,http://localhost:8000,5.450617ms,<nil>,1,GET
+4.461675e+06,200,0,http://localhost:8000,4.461675ms,<nil>,2,GET
+5.935396e+06,200,0,http://localhost:8000,5.935396ms,<nil>,3,GET
+4.060925e+06,200,0,http://localhost:8000,4.060925ms,<nil>,4,GET
+```
 
-You can use `--authentication username:password` as a simpler alternative to `--headers Authorization="Basic <base64-string>`
+```bash
+$ raven --raw json do 5 get http://localhost:8000
+[{"elapsed":"6.345739ms","error":null,"index":0,"method":"GET","nanoseconds_elapsed":6345739,"status":200,"step":0,"url":"http://localhost:8000"},{"elapsed":"4.559865ms","error":null,"index":1,"method":"GET","nanoseconds_elapsed":4559865,"status":200,"step":0,"url":"http://localhost:8000"},{"elapsed":"5.676389ms","error":null,"index":2,"method":"GET","nanoseconds_elapsed":5676389,"status":200,"step":0,"url":"http://localhost:8000"},{"elapsed":"4.979091ms","error":null,"index":3,"method":"GET","nanoseconds_elapsed":4979091,"status":200,"step":0,"url":"http://localhost:8000"},{"elapsed":"3.899406ms","error":null,"index":4,"method":"GET","nanoseconds_elapsed":3899406,"status":200,"step":0,"url":"http://localhost:8000"}]
+```
+
+Instead of printing a human-readable result summary, you can have `raven`
+output the raw captured data using the `-r / --raw` flag.
+
+You must specify an output format:
+* `csv` for command-separated values
+* `json` for minimized JSON objects
+* `prettyjson` for indented JSON objects
+
+**This flag is passed _before_ the command name**
+
+You **cannot** use both the `--raw <format>` and the `--verbose` flags at the
+same time.
+
+### (global) Verbose output
+> See detailed information as tests are running by using `verbose` mode
+
+
+```bash
+$ raven -v do 5 get http://localhost:8000
+	generating 5 requests
+		performing request 0
+		performing request 1
+		performing request 2
+		performing request 3
+		performing request 4
+	waiting requests to complete
+Total requests: 5
+Errored requests: 0s
+Max elapsed: 6.886712ms
+Min elapsed: 4.206239ms
+Avg elapsed: 5.538624ms
+
+Status Code counts:
+	HTTP 200 - 5
+```
+
+You can enable verbose printing by supplying the `-v / --verbose` flag. Additional
+information will be printed as the application runs.
+
+**This flag is passed _before_ the command name**
+
+You **cannot** use both the `--raw <format>` and the `--verbose` flags at the
+same time.
 
 # License
 MIT License
