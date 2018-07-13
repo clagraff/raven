@@ -60,7 +60,7 @@ workflows:
   main:
     jobs:
       - deps
-      - linting
+      - linting:
           requres:
             - deps
       - tests:
