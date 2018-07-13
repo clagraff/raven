@@ -32,6 +32,7 @@ jobs:
     working_directory: /go/src/github.com/clagraff/raven
     steps:
       - checkout
+      - run: go get -v -t -d ./...
       - run: go get -u github.com/mitchellh/gox
       - run: gox --output="artifacts/{{.Dir}}_{{.OS}}_{{.Arch}}"
 
