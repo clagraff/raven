@@ -42,10 +42,10 @@ jobs:
     steps:
       - attach_workspace:
           at: ./artifacts
+      - run: checkout
       - run:
           name: "Publish Release on GitHub"
           command: |
-            checkout
             go vet -v -t -d ./...
             go get github.com/tcnksm/ghr
             VERSION=$(go run main.go version)
