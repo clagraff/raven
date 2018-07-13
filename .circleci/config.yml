@@ -25,30 +25,21 @@ jobs:
       - run: go get -v -t -d ./...
       - run: go test -v --coverprofile cover.out ./...
 
-  build:
+  publish:
     docker:
       - image: circleci/golang:1.9
-      
     working_directory: /go/src/github.com/clagraff/raven
     steps:
       - checkout
-      - run: go get -v -t -d ./...
-      - run: go get -u github.com/mitchellh/gox
-      - run: gox --output="artifacts/{{.Dir}}_{{.OS}}_{{.Arch}}"
-
-  publish-github-release:
-    docker:
-      - image: circleci/golang:1.8
-    working_directory: /go/src/github.com/clagraff/raven
-    steps:
       - attach_workspace:
           at: ./artifacts
-      - checkout
+      - run: go get -v -t -d ./...
+      - run: go get github.com/tcnksm/ghr
+      - run: go get -u github.com/mitchellh/gox
+      - run: gox --verbose --output="artifacts/{{.Dir}}_{{.OS}}_{{.Arch}}"
       - run:
-          name: "Publish Release on GitHub"
+          name: "Publish"
           command: |
-            go get -v -t -d ./...
-            go get github.com/tcnksm/ghr
             VERSION=$(go run main.go version)
             ghr -t ${GITHUB_TOKEN} -u ${CIRCLE_PROJECT_USERNAME} -r ${CIRCLE_PROJECT_REPONAME} -c ${CIRCLE_SHA1} -delete ${VERSION} ./artifacts/
 
@@ -58,16 +49,10 @@ workflows:
     jobs:
       - linting
       - tests
-      - build:
+      - publish:
           requires:
             - linting
             - tests
-          filters:
-            branches:
-              only: master
-      - publish-github-release:
-          requires:
-            - build
           filters:
             branches:
               only: master
