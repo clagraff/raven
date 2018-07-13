@@ -43,7 +43,6 @@ jobs:
     steps:
       - attach_workspace:
           at: ./artifacts
-      - checkout
       - run:
           name: "Publish Release on GitHub"
           command: |
@@ -62,12 +61,6 @@ workflows:
           requires:
             - linting
             - tests
-          filters:
-            branches:
-              only: master
       - publish-github-release:
           requires:
             - build
-          filters:
-            branches:
-              only: master
