@@ -22,7 +22,7 @@ raven 1.0.0
 
 ```bash
 # Perform bulk requests at once...
-$ raven do 50 get http://localhost
+$ raven do 5 get http://localhost
 
 # Stress until response times slow...
 $ raven stress duration get http://localhost/
@@ -37,15 +37,15 @@ $ raven stress status get http://localhost/
 > Perform multiple requests against an endpoint all at once
 
 ```bash
-$ raven do 50 get http://localhost:8000
-Total requests: 50
+$ raven do 5 get http://localhost:8000
+Total requests: 5
 Errored requests: 0
 Max elapsed: 1.008389032s
 Min elapsed: 3.059769ms
 Avg elapsed: 145.083852ms
 
 Status Code counts:
-	HTTP 200 - 50
+	HTTP 200 - 5
 ```
 
 
@@ -142,15 +142,15 @@ test stops.
 > Provide a username & password to enable Basic Auth for requests
 
 ```bash
-$ raven -a "johndoe:hunter2" do 50 get http://localhost:8000
-Total requests: 50
+$ raven -a "johndoe:hunter2" do 5 get http://localhost:8000
+Total requests: 5
 Errored requests: 0
 Max elapsed: 1.010340952s
 Min elapsed: 2.937627ms
 Avg elapsed: 325.627831ms
 
 Status Code counts:
-	HTTP 200 - 50
+	HTTP 200 - 5
 ```
 
 Provide a `username:password` to the application flag `-a / --authentication`
@@ -165,15 +165,15 @@ The username and password will be `base64`-encoded and passed in the
 > Provide customer headers for all requests
 
 ```bash
-$ raven -h Accept=text/plain -h Cache-Control=no-cache do 50 get http://localhost:8000
-Total requests: 50
-Errored requests: 37ns
+$ raven -h Accept=text/plain -h Cache-Control=no-cache do 5 get http://localhost:8000
+Total requests: 5
+Errored requests:0 
 Max elapsed: 2.009915103s
 Min elapsed: 3.246405ms
 Avg elapsed: 205.514321ms
 
 Status Code counts:
-	HTTP 200 - 50
+	HTTP 200 - 5
 ```
 
 You can provide multiple `key=value` pairs to be supplied as additional
@@ -226,7 +226,7 @@ $ raven -v do 5 get http://localhost:8000
 		performing request 4
 	waiting requests to complete
 Total requests: 5
-Errored requests: 0s
+Errored requests: 0
 Max elapsed: 6.886712ms
 Min elapsed: 4.206239ms
 Avg elapsed: 5.538624ms

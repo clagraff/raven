@@ -116,6 +116,10 @@ func (et *endpointTest) execute(step int, index int) {
 	et.err = err
 	et.index = index
 	et.step = step
+
+	if err != nil {
+		printVerbose("request error:", err)
+	}
 }
 
 func (et endpointTest) MarshalJSON() ([]byte, error) {
