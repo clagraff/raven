@@ -3,7 +3,7 @@
 # Check https://circleci.com/docs/2.0/language-go/ for more details
 version: 2
 jobs:
-  tests:
+  deps:
     docker:
       - image: circleci/golang:1.9
       
@@ -11,10 +11,26 @@ jobs:
     steps:
       - checkout
       - run: go get -v -t -d ./...
-      - run: go test -v --coverprofile cover.out ./...
+
+  linting:
+    docker:
+      - image: circleci/golang:1.9
+      
+    working_directory: /go/src/github.com/clagraff/raven
+    steps:
+      - checkout
       - run: go get -u gopkg.in/alecthomas/gometalinter.v2
       - run: gometalinter.v2 --install
       - run: gometalinter.v2 --enable-all --disable gochecknoglobals --disable gocyclo --exclude=".*_test.go" ./...
+
+  tests:
+    docker:
+      - image: circleci/golang:1.9
+      
+    working_directory: /go/src/github.com/clagraff/raven
+    steps:
+      - checkout
+      - run: go test -v --coverprofile cover.out ./...
 
   build:
     docker:
@@ -23,20 +39,19 @@ jobs:
     working_directory: /go/src/github.com/clagraff/raven
     steps:
       - checkout
-      - run: go get -v -t -d ./...
       - run: go get -u github.com/mitchellh/gox
       - run: gox --output="artifacts/{{.Dir}}_{{.OS}}_{{.Arch}}"
 
-
   publish-github-release:
     docker:
-      - image: cibuilds/github:0.10
+      - image: circleci/golang:1.8
     steps:
       - attach_workspace:
           at: ./artifacts
       - run:
           name: "Publish Release on GitHub"
           command: |
+            go get github.com/tcnksm/ghr
             VERSION=$(go run main.go version)
             ghr -t ${GITHUB_TOKEN} -u ${CIRCLE_PROJECT_USERNAME} -r ${CIRCLE_PROJECT_REPONAME} -c ${CIRCLE_SHA1} -delete ${VERSION} ./artifacts/
 
@@ -44,7 +59,13 @@ workflows:
   version: 2
   main:
     jobs:
-      - tests
+      - deps
+      - linting
+          requres:
+            - deps
+      - tests:
+          requires:
+            - deps
       - build:
           requires:
             - tests
