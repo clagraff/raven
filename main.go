@@ -566,7 +566,7 @@ func main() {
 		}
 
 	case version.FullCommand():
-		fmt.Println("raven", getVersion())
+		fmt.Println(getVersion())
 	default:
 		app.Usage(os.Stdout)
 	}
