@@ -4,11 +4,8 @@
 - [ ] Docs have been added / updated (for bug fixes / features)
 
 
-* **What kind of change does this PR introduce?** (Bug fix, feature, docs update, ...)
-
-
-
-* **What is the current behavior?** (You can also link to an open issue here)
+* **What is the current behavior?**
+<!-- please link to open issue if one exists -->
 
 
 
@@ -21,3 +18,6 @@
 
 
 * **Other information**:
+
+
+
