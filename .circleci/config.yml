@@ -48,8 +48,10 @@ jobs:
       - checkout
       - attach_workspace:
           at: ./artifacts
+      - run: ls
       - run: go get -v -t -d ./...
       - run: go get github.com/tcnksm/ghr
+      - run: go get -u github.com/mitchellh/gox
       - run: gox --verbose --output="artifacts/{{.Dir}}_{{.OS}}_{{.Arch}}"
       - run:
           name: "Publish"
