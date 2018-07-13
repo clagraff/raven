@@ -64,6 +64,6 @@ workflows:
           requires:
             - linting
             - tests
-      - publish-github-release:
+      - publish:
           requires:
             - build
