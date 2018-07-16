@@ -15,7 +15,7 @@ import (
 )
 
 func getVersion() string {
-	return "1.0.0-alpha"
+	return "1.0.1-alpha"
 }
 
 func marshalTest(format string, tests []*endpointTest) (string, error) {
