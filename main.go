@@ -421,7 +421,7 @@ func main() {
 			elapsedSum := time.Duration(0)
 			maxElapsed := time.Duration(0)
 			minElapsed := time.Duration(0)
-			errored := time.Duration(0)
+			errored := 0
 
 			statuses := make(map[int]int)
 			for _, test := range tests {
