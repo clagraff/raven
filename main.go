@@ -423,18 +423,15 @@ func makeGraph(tests []*endpointTest) {
 		YValues: []float64{},
 	}
 
-	ticks := []chart.Tick{}
-
 	for _, test := range tests {
 		if test.err != nil {
-			fmt.Println(test.err)
+			//fmt.Println(test.err)
 			continue
 		}
 		x := float64(
-			int(test.index + (test.step * (*stressIterations))),
+			test.index + (test.step * (*stressIterations)),
 		)
 
-		ticks = append(ticks, chart.Tick{Value: x, Label: fmt.Sprintf("%d", int(x))})
 		continuous.XValues = append(continuous.XValues, x)
 		continuous.YValues = append(continuous.YValues, float64(test.elapsed))
 	}
@@ -449,7 +446,6 @@ func makeGraph(tests []*endpointTest) {
 				StrokeColor: chart.ColorAlternateGray,
 				StrokeWidth: 1.0,
 			},
-			//Ticks: ticks,
 			Range: &chart.ContinuousRange{
 				Min: 0.0,
 				Max: float64(len(tests)),
@@ -485,8 +481,7 @@ func makeGraph(tests []*endpointTest) {
 	bites := buff.Bytes()
 
 	writer := bufio.NewWriter(os.Stdout)
-	writer.Write(bites)
-	return
+	_, _ = writer.Write(bites)
 }
 
 func main() {
