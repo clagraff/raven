@@ -416,24 +416,36 @@ func makeGraph(tests []*endpointTest) {
 		Name: "Response Durations",
 		Style: chart.Style{
 			Show:        true,
-			StrokeColor: chart.ColorRed,
-			FillColor:   drawing.ColorRed.WithAlpha(64),
+			StrokeColor: chart.ColorBlue,
+			FillColor:   drawing.ColorBlue.WithAlpha(64),
+		},
+		XValues: []float64{},
+		YValues: []float64{},
+	}
+
+	erroredSeries := chart.ContinuousSeries{
+		Name: "Errored Response Durations",
+		Style: chart.Style{
+			Show:        true,
+			StrokeWidth: chart.Disabled,
+			DotWidth:    5,
 		},
 		XValues: []float64{},
 		YValues: []float64{},
 	}
 
 	for _, test := range tests {
-		if test.err != nil {
-			//fmt.Println(test.err)
-			continue
-		}
 		x := float64(
 			test.index + (test.step * (*stressIterations)),
 		)
 
-		continuous.XValues = append(continuous.XValues, x)
-		continuous.YValues = append(continuous.YValues, float64(test.elapsed))
+		if test.err == nil {
+			continuous.XValues = append(continuous.XValues, x)
+			continuous.YValues = append(continuous.YValues, float64(test.elapsed))
+		} else {
+			erroredSeries.XValues = append(erroredSeries.XValues, x)
+			erroredSeries.YValues = append(erroredSeries.YValues, float64(test.elapsed))
+		}
 	}
 
 	graph := chart.Chart{
@@ -462,7 +474,7 @@ func makeGraph(tests []*endpointTest) {
 				return fmt.Sprintf("%v", time.Duration(i.(float64)))
 			},
 		},
-		Series: []chart.Series{continuous},
+		Series: []chart.Series{continuous, erroredSeries},
 		Width:  1920,
 		Height: 1090,
 		Background: chart.Style{
