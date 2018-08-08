@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -11,6 +13,8 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	chart "github.com/wcharczuk/go-chart"
+	"github.com/wcharczuk/go-chart/drawing"
 	kingpin "gopkg.in/alecthomas/kingpin.v1"
 )
 
@@ -21,6 +25,9 @@ func getVersion() string {
 func marshalTest(format string, tests []*endpointTest) (string, error) {
 	var output string
 	switch format {
+	case "graph":
+		makeGraph(tests)
+		return output, nil
 	case "json":
 		bites, err := json.Marshal(tests)
 		if err != nil {
@@ -80,7 +87,10 @@ func marshalTest(format string, tests []*endpointTest) (string, error) {
 
 		output = fmt.Sprintf("%s\n%s", headerRow, valueRow)
 	default:
-		return output, errors.Errorf("invalid format: %s", format)
+		return output, errors.Errorf(
+			"invalid format: %s must be: csv,json,prettyjson,graph",
+			format,
+		)
 	}
 
 	return output, nil
@@ -141,12 +151,14 @@ func (et endpointTest) MarshalJSON() ([]byte, error) {
 
 func newHTTPClient() *http.Client {
 	netTransport := &http.Transport{
-		Dial:                (&net.Dialer{Timeout: 5 * time.Second}).Dial,
-		TLSHandshakeTimeout: 5 * time.Second,
+		Dial: (&net.Dialer{
+			Timeout: time.Duration(*cutoff) * time.Second,
+		}).Dial,
+		TLSHandshakeTimeout: time.Duration(*cutoff) * time.Second,
 	}
 
 	client := &http.Client{
-		Timeout:   time.Second * 10,
+		Timeout:   time.Second * time.Duration(*cutoff),
 		Transport: netTransport,
 	}
 
@@ -196,7 +208,12 @@ var (
 		"json",
 		"prettyjson",
 		"csv",
+		"graph",
 	)
+	cutoff = app.Flag(
+		"cutoff",
+		"Max seconds before hanging requests are terminated.",
+	).Short('c').Default("10").Int()
 
 	version = app.Command("version", "Print running version of raven.")
 
@@ -392,6 +409,91 @@ func printVerbose(items ...interface{}) {
 	if *verbose {
 		fmt.Println(items...)
 	}
+}
+
+func makeGraph(tests []*endpointTest) {
+	continuous := chart.ContinuousSeries{
+		Name: "Response Durations",
+		Style: chart.Style{
+			Show:        true,
+			StrokeColor: chart.ColorBlue,
+			FillColor:   drawing.ColorBlue.WithAlpha(64),
+		},
+		XValues: []float64{},
+		YValues: []float64{},
+	}
+
+	erroredSeries := chart.ContinuousSeries{
+		Name: "Errored Response Durations",
+		Style: chart.Style{
+			Show:        true,
+			StrokeWidth: chart.Disabled,
+			DotWidth:    5,
+		},
+		XValues: []float64{},
+		YValues: []float64{},
+	}
+
+	for _, test := range tests {
+		x := float64(
+			test.index + (test.step * (*stressIterations)),
+		)
+
+		if test.err == nil {
+			continuous.XValues = append(continuous.XValues, x)
+			continuous.YValues = append(continuous.YValues, float64(test.elapsed))
+		} else {
+			erroredSeries.XValues = append(erroredSeries.XValues, x)
+			erroredSeries.YValues = append(erroredSeries.YValues, float64(test.elapsed))
+		}
+	}
+
+	graph := chart.Chart{
+		XAxis: chart.XAxis{
+			Name:      "Index",
+			NameStyle: chart.StyleShow(),
+			Style:     chart.StyleShow(),
+			GridMajorStyle: chart.Style{
+				Show:        true,
+				StrokeColor: chart.ColorAlternateGray,
+				StrokeWidth: 1.0,
+			},
+			Range: &chart.ContinuousRange{
+				Min: 0.0,
+				Max: float64(len(tests)),
+			},
+		},
+		YAxis: chart.YAxis{
+			Name:      "Duration",
+			NameStyle: chart.StyleShow(),
+			Style:     chart.StyleShow(),
+			TickStyle: chart.Style{
+				TextRotationDegrees: 45.0,
+			},
+			ValueFormatter: func(i interface{}) string {
+				return fmt.Sprintf("%v", time.Duration(i.(float64)))
+			},
+		},
+		Series: []chart.Series{continuous, erroredSeries},
+		Width:  1920,
+		Height: 1090,
+		Background: chart.Style{
+			Padding: chart.Box{
+				Top: 50,
+			},
+		},
+	}
+
+	buff := new(bytes.Buffer)
+	err := graph.Render(chart.PNG, buff)
+	if err != nil {
+		panic(err)
+	}
+
+	bites := buff.Bytes()
+
+	writer := bufio.NewWriter(os.Stdout)
+	_, _ = writer.Write(bites)
 }
 
 func main() {
