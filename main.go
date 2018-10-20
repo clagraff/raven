@@ -493,7 +493,9 @@ func makeGraph(tests []*endpointTest) {
 	bites := buff.Bytes()
 
 	writer := bufio.NewWriter(os.Stdout)
-	_, _ = writer.Write(bites)
+	if _, err = writer.Write(bites); err != nil {
+		panic(err)
+	}
 }
 
 func main() {
